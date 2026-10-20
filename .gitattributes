@@ -1,0 +1,16 @@
+# Store text with LF line endings in the repo; each OS checks out its own
+* text=auto
+
+*.sh   text eol=lf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+*.wav  binary
+*.aif  binary
+*.aiff binary
+*.mp3  binary
+*.flac binary
+*.png  binary
+*.jpg  binary
+*.ttf  binary
+*.otf  binary

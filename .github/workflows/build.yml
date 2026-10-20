@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            configure: mac-release
+            build: mac-release
+          - os: windows-latest
+            configure: windows
+            build: windows-release
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.configure }} -DSV_COPY_PLUGINS=OFF
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.build }}
+
+      - name: Engine tests
+        run: ctest --preset ${{ matrix.build }}
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@v7
+        with:
+          name: SpectralVocoder-${{ runner.os }}
+          path: |
+            build/${{ matrix.configure }}/SpectralVocoder_artefacts/Release/VST3
+            build/${{ matrix.configure }}/SpectralVocoder_artefacts/Release/AU
+          if-no-files-found: error

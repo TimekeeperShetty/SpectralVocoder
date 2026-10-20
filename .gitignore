@@ -1,0 +1,19 @@
+# Build output
+build/
+build-*/
+
+# Personal CMake presets (put your own overrides here)
+CMakeUserPresets.json
+
+# Editors: share only the recommended VS Code extensions
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.user
+*.suo
+.vs/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
