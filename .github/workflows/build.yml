@@ -7,14 +7,17 @@ on:
 
 jobs:
   build:
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - name: macOS
+            os: macos-latest
             configure: mac-release
             build: mac-release
-          - os: windows-latest
+          - name: Windows
+            os: windows-latest
             configure: windows
             build: windows-release
 
