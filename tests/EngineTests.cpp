@@ -203,6 +203,7 @@ static void testModes (double fs)
         e.prepare (fs);
         VocoderEngine::Params p;
         p.wVoc = m.v; p.wCross = m.c;
+        p.releaseMs = 0.0f;   // check the raw tracking; release smoothing is tested separately
         const auto out = run (e, voice, carrier, 512, p);
 
         // Does the output follow the voice's syllables? Compare per-hop output level
@@ -275,6 +276,137 @@ static void testFreeze()
            "peak after release " + juce::String (db (peak (Signal (released.begin() + 11 * sec, released.end()))), 1) + " dB");
 }
 
+static void testRelease()
+{
+    std::printf ("\nRelease (voice: 140 Hz saw for 2 s, then silence; carrier: 110 Hz saw throughout)\n");
+    const double fs = 48000.0;
+    const int n = (int) fs * 3, stop = (int) fs * 2;
+    auto voice = saw (n, fs, 140.0, 0.3f);
+    std::fill (voice.begin() + stop, voice.end(), 0.0f);
+    const auto carrier = saw (n, fs, 110.0, 0.5f);
+
+    // Level 150-250 ms after the voice stops (shifted by the latency).
+    auto tailLevel = [&] (float releaseMs)
+    {
+        VocoderEngine e;
+        e.prepare (fs);
+        VocoderEngine::Params p;
+        p.releaseMs  = releaseMs;
+        p.outputGain = 0.25f;   // stay below the tanh soft clip so it doesn't flatten the decay
+        const auto out = run (e, voice, carrier, 512, p);
+        const int from = stop + L + (int) (0.15 * fs);
+        return std::make_pair (rms (out, from, from + (int) (0.1 * fs)), rms (out, stop + L - (int) (0.5 * fs), stop + L));
+    };
+
+    const auto [instantTail, instantHeld] = tailLevel (0.0f);
+    const auto [slowTail, slowHeld]       = tailLevel (300.0f);
+
+    check (instantTail < 1.0e-4, "release 0 ms cuts off once the voice stops",
+           "tail " + juce::String (db ((float) instantTail), 1) + " dB");
+    check (slowTail > instantTail * 100.0 && slowTail < slowHeld, "release 300 ms rings out, below the held level",
+           "held " + juce::String (db ((float) slowHeld), 1) + " dB, tail " + juce::String (db ((float) slowTail), 1) + " dB");
+    check (std::abs (db ((float) slowHeld) - db ((float) instantHeld)) < 1.0f, "release doesn't change the steady level",
+           juce::String (db ((float) instantHeld), 1) + " dB vs " + juce::String (db ((float) slowHeld), 1) + " dB");
+}
+
+/** Voice-like signal: harmonics of f0 shaped by a fixed vowel envelope
+    (formants at 700, 1200 and 2600 Hz on a falling tilt). */
+static double vowelEnvelope (double f)
+{
+    double a = 0.15;
+    for (double fm : { 700.0, 1200.0, 2600.0 }) a += std::exp (-std::pow ((f - fm) / 200.0, 2.0));
+    return a / (1.0 + f / 1000.0);
+}
+
+/** Long-term spectrum shape in 1/3-octave bands from 160 Hz to 4 kHz, in dB
+    with the mean removed (so only the shape is compared, not the level). */
+static std::vector<double> spectrumShape (const Signal& x, double fs, int from)
+{
+    constexpr int order = 12, N = 1 << order;
+    juce::dsp::FFT fft (order);
+    std::vector<double> power (N / 2 + 1, 0.0);
+    std::vector<float> buf (2 * N);
+
+    for (int s = from; s + N <= (int) x.size(); s += N / 2)
+    {
+        for (int i = 0; i < N; ++i)
+            buf[(size_t) i] = x[(size_t) (s + i)] * (float) (0.5 - 0.5 * std::cos (kTwoPi * (double) i / (double) N));
+        std::fill (buf.begin() + N, buf.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform (buf.data());
+        for (int k = 0; k <= N / 2; ++k) power[(size_t) k] += (double) buf[(size_t) k] * buf[(size_t) k];
+    }
+
+    std::vector<double> shape;
+    for (double fc = 160.0; fc <= 4000.0; fc *= std::pow (2.0, 1.0 / 3.0))
+    {
+        const int lo = (int) (fc / std::pow (2.0, 1.0 / 6.0) * N / fs);
+        const int hi = (int) (fc * std::pow (2.0, 1.0 / 6.0) * N / fs);
+        double p = 0.0;
+        for (int k = lo; k <= hi; ++k) p += power[(size_t) k];
+        shape.push_back (10.0 * std::log10 (p / (hi - lo + 1) + 1.0e-30));
+    }
+
+    double mean = 0.0;
+    for (double v : shape) mean += v;
+    mean /= (double) shape.size();
+    for (double& v : shape) v -= mean;
+    return shape;
+}
+
+static void testHighVoice()
+{
+    std::printf ("\nHigh voices (same vowel at 110 and 300 Hz, noise carrier; error = rms dB distance from the true vowel shape)\n");
+    const double fs = 48000.0;
+    const int n = (int) fs * 4;
+    const auto carrier = noise (n, 0.5f, 7);
+
+    std::vector<double> truth;
+    for (double fc = 160.0; fc <= 4000.0; fc *= std::pow (2.0, 1.0 / 3.0))
+        truth.push_back (20.0 * std::log10 (vowelEnvelope (fc)));
+    {
+        double mean = 0.0;
+        for (double v : truth) mean += v;
+        mean /= (double) truth.size();
+        for (double& v : truth) v -= mean;
+    }
+
+    auto vowelAt = [&] (double f0)
+    {
+        Signal v ((size_t) n, 0.0f);
+        for (int h = 1; f0 * h < 5000.0; ++h)
+        {
+            const double a = 0.05 * vowelEnvelope (f0 * h), w = kTwoPi * f0 * h / fs;
+            for (int i = 0; i < n; ++i) v[(size_t) i] += (float) (a * std::sin (w * i));
+        }
+        return v;
+    };
+
+    auto error = [&] (double f0, float minBandHz)
+    {
+        VocoderEngine e;
+        e.prepare (fs);
+        VocoderEngine::Params p;
+        p.releaseMs  = 0.0f;
+        p.minBandHz  = minBandHz;
+        p.outputGain = 0.05f;   // stay well below the tanh soft clip
+        const auto shape = spectrumShape (run (e, vowelAt (f0), carrier, 512, p), fs, (int) fs);
+        double sq = 0.0;
+        for (size_t i = 0; i < shape.size(); ++i) sq += std::pow (shape[i] - truth[i], 2.0);
+        return std::sqrt (sq / (double) shape.size());
+    };
+
+    const float defaultWidth = VocoderEngine::Params().minBandHz;
+    const double low = error (110.0, defaultWidth), high = error (300.0, defaultWidth);
+    const double lowPlain = error (110.0, 0.0f), highPlain = error (300.0, 0.0f);
+
+    std::printf ("  plain mel bands: 110 Hz %.1f dB, 300 Hz %.1f dB\n", lowPlain, highPlain);
+    check (high < 6.0 && high < low + 3.0, "300 Hz voice keeps its vowel about as well as 110 Hz",
+           "110 Hz " + juce::String (low, 1) + " dB, 300 Hz " + juce::String (high, 1) + " dB at Min Band Width "
+               + juce::String (defaultWidth, 0) + " Hz");
+    check (low < lowPlain + 1.0, "low voice is barely affected by the wider bands",
+           juce::String (lowPlain, 1) + " dB -> " + juce::String (low, 1) + " dB");
+}
+
 static void testSpeed()
 {
     std::printf ("\nCPU\n");
@@ -308,6 +440,8 @@ int main()
     testLatency();
     for (double fs : { 44100.0, 48000.0 })
         testModes (fs);
+    testRelease();
+    testHighVoice();
     testFreeze();
     testSpeed();
 

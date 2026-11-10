@@ -39,7 +39,7 @@ private:
 
     AudioPluginAudioProcessor& processorRef;
 
-    LabelledSlider vocoder, cross, freezeMix, gain;
+    LabelledSlider vocoder, cross, freezeMix, release, minBand, gain;
 
     juce::ToggleButton freezeButton      { "Freeze" };
     juce::ToggleButton passthroughButton { "STFT passthrough test (output = voice)" };

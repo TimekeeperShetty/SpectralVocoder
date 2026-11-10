@@ -12,6 +12,8 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     pVoc         = apvts.getRawParameterValue (IDs::wVoc);
     pCross       = apvts.getRawParameterValue (IDs::wCross);
     pFreezeW     = apvts.getRawParameterValue (IDs::wFreeze);
+    pRelease     = apvts.getRawParameterValue (IDs::release);
+    pMinBand     = apvts.getRawParameterValue (IDs::minBandHz);
     pFreezeOn    = apvts.getRawParameterValue (IDs::freeze);
     pGainDb      = apvts.getRawParameterValue (IDs::gainDb);
     pPassthrough = apvts.getRawParameterValue (IDs::passthrough);
@@ -29,6 +31,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
     // How values are shown as text in the editor and in the DAW's automation lanes.
     const auto twoDecimals = AudioParameterFloatAttributes()
                                  .withStringFromValueFunction ([] (float v, int) { return String (v, 2); });
+    const auto millis = AudioParameterFloatAttributes()
+                            .withLabel ("ms")
+                            .withStringFromValueFunction ([] (float v, int) { return String (juce::roundToInt (v)) + " ms"; });
+    const auto hertz = AudioParameterFloatAttributes()
+                           .withLabel ("Hz")
+                           .withStringFromValueFunction ([] (float v, int) { return String (juce::roundToInt (v)) + " Hz"; });
     const auto decibels = AudioParameterFloatAttributes()
                               .withLabel ("dB")
                               .withStringFromValueFunction ([] (float v, int) { return String (v, 1) + " dB"; });
@@ -40,6 +48,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { IDs::wFreeze, 1 }, "Freeze Mix",
                                                        NormalisableRange<float> (0.0f, 1.0f), 0.5f, twoDecimals));
     layout.add (std::make_unique<AudioParameterBool>  (ParameterID { IDs::freeze, 1 }, "Freeze", false));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { IDs::release, 1 }, "Release",
+                                                       NormalisableRange<float> (0.0f, 1000.0f, 1.0f, 0.5f), 100.0f, millis));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { IDs::minBandHz, 1 }, "Min Band Width",
+                                                       NormalisableRange<float> (0.0f, 1000.0f, 1.0f), 500.0f, hertz));
     layout.add (std::make_unique<AudioParameterFloat> (ParameterID { IDs::gainDb, 1 }, "Output Gain",
                                                        NormalisableRange<float> (-36.0f, 36.0f, 0.1f), 0.0f, decibels));
     layout.add (std::make_unique<AudioParameterBool>  (ParameterID { IDs::passthrough, 1 }, "STFT Passthrough Test", false));
@@ -126,6 +138,8 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     p.wVoc         = pVoc->load();
     p.wCross       = pCross->load();
     p.wFreeze      = pFreezeW->load();
+    p.releaseMs    = pRelease->load();
+    p.minBandHz    = pMinBand->load();
     p.freezeActive = pFreezeOn->load() > 0.5f;
     p.outputGain   = juce::Decibels::decibelsToGain (pGainDb->load());
     p.passthrough  = pPassthrough->load() > 0.5f;
