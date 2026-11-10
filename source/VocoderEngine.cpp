@@ -31,8 +31,14 @@ namespace
         vocoder to roughly the same level as cross-synthesis. It was measured with
         buzzy and whispered voices against saw, chord and noise carriers (spread
         about +-4 dB). It changes level only, not the sound, and keeps the
-        carrier's own dynamics. */
-    constexpr float kVocScale = 0.15f;
+        carrier's own dynamics.
+
+        Raised from the matched 0.15 to 0.6 (+12 dB) after live testing: because
+        this path's level is voice level x carrier level, real-world inputs
+        (quieter than the test signals) made the vocoder hard to hear. It now
+        sits about 12 dB above cross-synthesis in a blend, and loud inputs will
+        push into the tanh soft clip; turn Output Gain down if that happens. */
+    constexpr float kVocScale = 0.6f;
 }
 
 //==============================================================================
@@ -78,6 +84,7 @@ void VocoderEngine::prepare (double newSampleRate)
                      &freezeMag, &freezePhase, &freezeOmega })
         v->assign (numBins, 0.0f);
 
+    bandEnv.assign (numBands, 0.0f);
     peakBins.assign (numBins, 0);
 
     accum  .assign (fftSize, 0.0f);
@@ -88,7 +95,7 @@ void VocoderEngine::prepare (double newSampleRate)
 
 void VocoderEngine::reset()
 {
-    for (auto* v : { &stageV, &stageC, &frameV, &frameC, &lastPhaseC, &accum, &outFifo })
+    for (auto* v : { &stageV, &stageC, &frameV, &frameC, &lastPhaseC, &accum, &outFifo, &bandEnv })
         std::fill (v->begin(), v->end(), 0.0f);
 
     stageCount = 0;
@@ -234,6 +241,16 @@ void VocoderEngine::processFrame (const Params& params) noexcept
         }
 
         // ---- 3. voice envelope: average magnitude within each mel band ----
+        // Each band's level jumps up straight away but falls with a one-pole
+        // release, so words ring out a little instead of cutting off. One frame
+        // is one hop, so the per-frame coefficient is exp(-hop / (release * fs)).
+        const float releaseCoeff = params.releaseMs > 0.0f
+            ? std::exp (-(float) hopSize / (0.001f * params.releaseMs * (float) sampleRate))
+            : 0.0f;
+
+        const int minBins = juce::jlimit (0, numBins,
+                                          (int) std::lround (params.minBandHz * (float) fftSize / (float) sampleRate));
+
         for (int b = 0; b < numBands; ++b)
         {
             const int lo = bandEdges[(size_t) b];
@@ -241,13 +258,29 @@ void VocoderEngine::processFrame (const Params& params) noexcept
             if (hi <= lo)
                 continue;   // empty low band at small FFT sizes; the next band starts here
 
+            // The low mel bands are narrower than the gap between a high voice's
+            // harmonics, so some would catch no harmonic at all and the envelope
+            // would follow pitch instead of vowel. Measure each band over a window
+            // at least minBins wide, centred on the band (it still writes only its
+            // own bins below).
+            int aLo = lo, aHi = hi;
+            if (aHi - aLo < minBins)
+            {
+                const int centre = (lo + hi) / 2;
+                aHi = std::min (numBins, std::max (0, centre - minBins / 2) + minBins);
+                aLo = std::max (0, aHi - minBins);
+            }
+
             float sum = 0.0f;
-            for (int k = lo; k < hi; ++k)
+            for (int k = aLo; k < aHi; ++k)
                 sum += magV[(size_t) k];
 
-            const float mean = sum / (float) (hi - lo);
+            const float mean = sum / (float) (aHi - aLo);
+            float& level = bandEnv[(size_t) b];
+            level = mean >= level ? mean : releaseCoeff * level + (1.0f - releaseCoeff) * mean;
+
             for (int k = lo; k < hi; ++k)
-                envelope[(size_t) k] = mean;
+                envelope[(size_t) k] = level;
         }
 
         // ---- 4. freeze: capture on the rising edge, release on the falling edge ----

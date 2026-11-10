@@ -60,6 +60,8 @@ These IDs are saved in DAW sessions. Don't rename them once people are using the
 | `wCross` | Cross-Synthesis | 0–1 | 0.0 |
 | `wFreeze` | Freeze Mix | 0–1 | 0.5 |
 | `freeze` | Freeze | on/off | off |
+| `release` | Release | 0–1000 ms | 100 ms |
+| `minBandHz` | Min Band Width | 0–1000 Hz | 500 Hz |
 | `gainDb` | Output Gain | −36 to +36 dB | 0 dB |
 | `passthrough` | STFT Passthrough Test | on/off | off |
 
@@ -96,7 +98,9 @@ The tests check:
 These are the places where the plugin differs from the notebook:
 
 - **No final peak-normalise.** A streaming plugin can't see the whole output. Level now comes from the overlap-add gain (÷1.5), a fixed vocoder scale, and a `tanh` soft clip after Output Gain.
-- **Vocoder level matched to cross-synthesis.** The vocoder path multiplies two FFT magnitudes, so unscaled it is about 37 dB louder and drowns out the other modes in a blend. A fixed scale (measured across several voices and carriers) brings the two to within about ±5 dB of each other.
+- **Vocoder level matched to cross-synthesis.** The vocoder path multiplies two FFT magnitudes, so unscaled it is about 37 dB louder and drowns out the other modes in a blend. A fixed scale (measured across several voices and carriers) brings the two to within about ±5 dB of each other, then the vocoder is raised a further 12 dB (scale 0.6) because live inputs left it too quiet.
+- **Release on the vocoder envelope.** Each mel band's level rises instantly but falls with a one-pole release (the Release parameter, default 100 ms), so words ring out instead of cutting off. The notebook had no smoothing (Release = 0).
+- **Minimum band width for high voices.** The lowest mel bands are only ~120–200 Hz wide, narrower than the gap between a high voice's harmonics, so some bands caught no harmonic and the envelope followed pitch instead of vowel (a 300 Hz voice came out ~11 dB off the true vowel shape vs ~2.5 dB for 110 Hz). Each band is now measured over a window at least Min Band Width wide (default 500 Hz), centred on the band. Keep it at or above the highest note sung; 0 gives the notebook's plain mel bands.
 - **Freeze is a live button.** Pressing it captures the current carrier frame. Releasing it lets the next press capture a fresh one.
 - **Freeze uses phase locking.** Each bin follows the frequency of the harmonic peak it belongs to. Without this, low carriers (whose harmonics are only a few bins apart) swell and fade by several dB while frozen.
 - **Periodic Hann window** (not `np.hanning`, which is symmetric), so overlap-add reconstructs exactly.

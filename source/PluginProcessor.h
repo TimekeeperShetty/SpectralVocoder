@@ -62,6 +62,8 @@ public:
         static constexpr const char* wVoc        = "wVoc";
         static constexpr const char* wCross      = "wCross";
         static constexpr const char* wFreeze     = "wFreeze";
+        static constexpr const char* release     = "release";
+        static constexpr const char* minBandHz   = "minBandHz";
         static constexpr const char* freeze      = "freeze";
         static constexpr const char* gainDb      = "gainDb";
         static constexpr const char* passthrough = "passthrough";
@@ -85,6 +87,8 @@ private:
     std::atomic<float>* pVoc         = nullptr;
     std::atomic<float>* pCross       = nullptr;
     std::atomic<float>* pFreezeW     = nullptr;
+    std::atomic<float>* pRelease     = nullptr;
+    std::atomic<float>* pMinBand     = nullptr;
     std::atomic<float>* pFreezeOn    = nullptr;
     std::atomic<float>* pGainDb      = nullptr;
     std::atomic<float>* pPassthrough = nullptr;

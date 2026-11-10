@@ -9,6 +9,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     setUpSlider (vocoder,   IDs::wVoc,    "Vocoder");
     setUpSlider (cross,     IDs::wCross,  "Cross-Synthesis");
     setUpSlider (freezeMix, IDs::wFreeze, "Freeze Mix");
+    setUpSlider (release,   IDs::release, "Release");
+    setUpSlider (minBand,   IDs::minBandHz, "Min Band Width");
     setUpSlider (gain,      IDs::gainDb,  "Output Gain");
 
     addAndMakeVisible (freezeButton);
@@ -20,7 +22,9 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     levelReadout.setFont (juce::FontOptions (13.0f));
     addAndMakeVisible (levelReadout);
 
-    setSize (480, 300);
+    setResizable (true, true);
+    setResizeLimits (720, 372, 1400, 680);
+    setSize (720, 372);
     startTimerHz (10);
 }
 
@@ -72,7 +76,7 @@ void AudioPluginAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced (12);
     area.removeFromTop (28);   // title, drawn in paint()
 
-    for (auto* s : { &vocoder, &cross, &freezeMix, &gain })
+    for (auto* s : { &vocoder, &cross, &freezeMix, &release, &minBand, &gain })
     {
         auto row = area.removeFromTop (32);
         s->label.setBounds (row.removeFromLeft (120));

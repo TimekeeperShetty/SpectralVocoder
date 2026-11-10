@@ -39,6 +39,8 @@ public:
         float wVoc         = 1.0f;   // channel vocoder weight
         float wCross       = 0.0f;   // cross-synthesis weight
         float wFreeze      = 0.0f;   // freeze weight (only counts while frozen)
+        float releaseMs    = 100.0f; // how slowly the vocoder's band envelope falls (0 = instant)
+        float minBandHz    = 500.0f; // narrowest analysis window per band; keep >= the highest sung pitch (0 = plain mel bands)
         bool  freezeActive = false;  // capture on rising edge, release on falling edge
         float outputGain   = 1.0f;   // linear gain before the soft clipper
         bool  passthrough  = false;  // test mode: output = voice, through the full STFT
@@ -80,6 +82,7 @@ private:
 
     // ---- per-frame spectra (Python locals become preallocated members) ----
     std::vector<float> magV, magC, phaseC, lastPhaseC, trueAdvC, envelope;
+    std::vector<float> bandEnv;   // smoothed level per mel band (attack instant, release slow)
 
     // ---- freeze snapshot ----
     std::vector<float> freezeMag, freezePhase, freezeOmega;
